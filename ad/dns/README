@@ -1,0 +1,29 @@
+[Usage]
+query - zonelist
+./samba-tool dns zonelist 172.27.127.130 -U administrator%ABcd_1234
+
+delete dns record
+./samba-tool dns delete 172.27.127.130 2008R2-AD.com nastest002 A 172.27.117.4 -U administrator%ABcd_1234
+
+[FAQ]
+Q1: Where is the samba-tool?
+Ans:
+./source4/scripting/bin/samba-tool
+
+Q2: Failed to update DNS entry while joining AD server?
+Ans:
+Error message:
+--------------
+# net ads join -U administrator
+Enter administrator's password:
+Using short domain name -- SAMDOM
+Joined 'AD-Member' to dns domain 'samdom.example.com'
+No DNS domain configured for AD-Member. Unable to perform DNS Update.
+DNS update failed: NT_STATUS_INVALID_PARAMETER
+--------------
+
+
+
+[Reference]
+1. https://wiki.samba.org/index.php/DNS_Administration#Delete_a_record_2
+2. 
