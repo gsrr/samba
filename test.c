@@ -56,19 +56,20 @@ void create_inode(struct inode *nodes, int num)
         nodes[i].num = i + 1;
         nodes[i].hist = 0;
         nodes[i].iacl = (struct acl*)malloc(sizeof(struct acl) * (ACLNUM * 2));
+        struct acl *tacl = nodes[i].iacl;
         for (j = 0 ; j < ACLNUM ; j++)
         {
-            nodes[i].iacl[j].user = 10000 + j;
-            nodes[i].iacl[j].perm = 3;
-            nodes[i].iacl[j].scope = 3;
-            nodes[i].iacl[j].inherit = 0;
+            tacl[j].user = 10000 + j;
+            tacl[j].perm = 3;
+            tacl[j].scope = 3;
+            tacl[j].inherit = 0;
         }
         for (j = 0 ; j < ACLNUM ; j++)
         {
-            nodes[i].iacl[j].user = 10000 + j;
-            nodes[i].iacl[j].perm = 3;
-            nodes[i].iacl[j].scope = 3;
-            nodes[i].iacl[j].inherit = 1;
+            tacl[j + ACLNUM].user = 10000 + j + ACLNUM;
+            tacl[j + ACLNUM].perm = 3;
+            tacl[j + ACLNUM].scope = 3;
+            tacl[j + ACLNUM].inherit = 1;
         }
     }
 }
@@ -89,10 +90,6 @@ int is_updated(int hist, struct journal *jou)
 int check_acl(struct inode *nodes, int inode_num)
 {   
     int i;
-    for(i = 0 ; i < nodes[inode_num].acl; i++)
-    {
-        ;
-    }
     return 0;
 }
 
@@ -126,14 +123,14 @@ void acl_update(struct inode *nodes, struct journal *jou, int inode_num)
 
         if(jou[i].inode_number == inode_num)
         {
-            nodes[inode_num - 1].acl += jou[i].acl;
+            nodes[inode_num - 1].iacl += jou[i].acl;
             nodes[inode_num - 1].hist += jou[i].serial_number;
         }
         else
         {
             if ((jou[i].serial_number & phist) != 0)
             {
-                nodes[inode_num - 1].acl += jou[i].acl;
+                nodes[inode_num - 1].iacl += jou[i].acl;
                 nodes[inode_num - 1].hist += jou[i].serial_number;
             }
         }
@@ -163,7 +160,11 @@ int main(int argc,char *args[]) {
 
     for (i = 0 ; i < INUM; i++)
     {
-        printf("inode : (num, acli, hist) = (%d, %d, %d)\n", nodes[i].num, nodes[i].acl, nodes[i].hist);
+        printf("inode : (num,  hist) = (%d, %d)\n", nodes[i].num, nodes[i].hist);
+        for (j = 0 ; j < 2*ACLNUM ; j++)
+        {
+            printf("acl : (index, user, perm, scope, inherit) = (%d, %d, %d, %d, %d)\n", j + 1, nodes[i].iacl[j].user, nodes[i].iacl[j].perm, nodes[i].iacl[j].scope, nodes[i].iacl[j].inherit);
+        }
     }
     
    // acl_update(nodes, jou, INUM);
@@ -171,7 +172,7 @@ int main(int argc,char *args[]) {
     printf("\n\n");
     for (i = 0 ; i < INUM; i++)
     {
-        printf("inode : (num, acli, hist) = (%d, %d, %d)\n", nodes[i].num, nodes[i].acl, nodes[i].hist);
+        printf("inode : (num, acli, hist) = (%d, %d, %d)\n", nodes[i].num, nodes[i].iacl, nodes[i].hist);
     }
     /*
     char path[512] = {0};
