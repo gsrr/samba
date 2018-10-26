@@ -7,7 +7,7 @@
 
 
 #define NUM 10
-#define INUM 50
+#define INUM 10
 #define ACLNUM 5
 
 struct acl {
@@ -21,7 +21,7 @@ struct journal {
     int serial_number;
     int inode_number;
     int user;
-    int acl;
+    struct acl *iacl;
 };
 
 struct inode {
@@ -33,6 +33,7 @@ struct inode {
 void create_journal(struct journal *jou, int num)
 {
     int i;
+    int j;
     int user = 100001;
     int base = 1;
     for (i = 0 ; i < num ; i++)
@@ -40,9 +41,16 @@ void create_journal(struct journal *jou, int num)
         jou[i].serial_number = base;
         jou[i].inode_number = i + 1;
         jou[i].user = 10000 + i + 1;
-        jou[i].acl = i + 1;
+        jou[i].iacl = (struct acl*)malloc(sizeof(struct acl) * ACLNUM);
         user += 1;
         base *= 2;
+        for (j = 0 ; j < ACLNUM ; j++)
+        {
+           jou[i].iacl[j].user = 10000 + rand() % 100;
+           jou[i].iacl[j].perm = 3;
+           jou[i].iacl[j].scope = 3;
+           jou[i].iacl[j].inherit = 0;
+        }
     }
     
 }
@@ -92,7 +100,7 @@ int check_acl(struct inode *nodes, int inode_num)
     int i;
     return 0;
 }
-
+/*
 void acl_update(struct inode *nodes, struct journal *jou, int inode_num)
 {
     int i;
@@ -138,6 +146,7 @@ void acl_update(struct inode *nodes, struct journal *jou, int inode_num)
     }
 
 }
+*/
 
 int main(int argc,char *args[]) { 
     int fd;
@@ -152,7 +161,11 @@ int main(int argc,char *args[]) {
     for (i = 0 ; i < NUM; i++)
     {
         printf("journal : %d --> ", i);
-        printf("serial=%d, inode=%d, user=%d, acl=%d", jou[i].serial_number, jou[i].inode_number, jou[i].user, jou[i].acl);
+        printf("serial=%d, inode=%d, user=%d\n", jou[i].serial_number, jou[i].inode_number, jou[i].user);
+        for (j = 0 ; j < ACLNUM ; j++)
+        {
+            printf("jou's acl : (index, user, perm, scope, inherit) = (%d, %d, %d, %d, %d)\n", j + 1, jou[i].iacl[j].user, jou[i].iacl[j].perm, jou[i].iacl[j].scope, jou[i].iacl[j].inherit);
+        }
         printf("\n");
     }
     
