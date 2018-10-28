@@ -7,7 +7,7 @@
 
 
 #define NUM 10
-#define INUM 10
+#define INUM 50
 #define ACLNUM 5
 
 struct acl {
@@ -21,12 +21,14 @@ struct journal {
     int serial_number;
     int inode_number;
     int user;
+    int cnt;
     struct acl *iacl;
 };
 
 struct inode {
     int num;
     int hist;
+    int cnt;
     struct acl *iacl;
 };
 
@@ -39,14 +41,15 @@ void create_journal(struct journal *jou, int num)
     for (i = 0 ; i < num ; i++)
     {
         jou[i].serial_number = base;
-        jou[i].inode_number = i + 1;
+        jou[i].inode_number = 1;
         jou[i].user = 10000 + i + 1;
+	jou[i].cnt = ACLNUM;
         jou[i].iacl = (struct acl*)malloc(sizeof(struct acl) * ACLNUM);
         user += 1;
         base *= 2;
         for (j = 0 ; j < ACLNUM ; j++)
         {
-           jou[i].iacl[j].user = 10000 + rand() % 100;
+           jou[i].iacl[j].user = 10000 + j + i;
            jou[i].iacl[j].perm = 3;
            jou[i].iacl[j].scope = 3;
            jou[i].iacl[j].inherit = 0;
@@ -63,6 +66,7 @@ void create_inode(struct inode *nodes, int num)
     {
         nodes[i].num = i + 1;
         nodes[i].hist = 0;
+	nodes[i].cnt = 2 * ACLNUM;
         nodes[i].iacl = (struct acl*)malloc(sizeof(struct acl) * (ACLNUM * 2));
         struct acl *tacl = nodes[i].iacl;
         for (j = 0 ; j < ACLNUM ; j++)
@@ -95,12 +99,84 @@ int is_updated(int hist, struct journal *jou)
      return 0;
 }
 
-int check_acl(struct inode *nodes, int inode_num)
+int check_acl(int user, struct inode *nodes, int inode_num)
 {   
     int i;
+    int cnt = nodes[inode_num - 1].cnt;
+    struct acl *tacl = nodes[inode_num - 1].iacl;	
+    int mask = 0;
+    for(i = 0 ; i < cnt ; i++)
+    {
+       mask |= tacl[i].perm;     
+    }
+    if ((mask & 1) == 0)
+        return -1;
     return 0;
 }
-/*
+
+struct acl* dupACL(struct acl *jacl, int jcnt)
+{
+        int i;
+        int j;
+        struct acl *dacl = (struct acl*)malloc(sizeof(struct acl) * jcnt);
+        memcpy(dacl, jacl, sizeof(struct acl) * jcnt);
+        return dacl;       
+}   
+
+int mergeCnt(struct acl *iacl, int icnt, struct acl *jacl, int jcnt)
+{
+   int mcnt = 0;
+   int i;
+   int j;
+   for(i = 0 ; i < icnt ; i++)
+   {
+        if (iacl[i].inherit == 0)
+        {
+                mcnt += 1;
+        }
+   }
+   for(j = 0 ; j < jcnt ; j++)
+   {
+        if(jacl[j].scope != 0)
+        {
+                mcnt += 1;
+        }
+   }
+   return mcnt;     
+}
+
+struct acl* mergeACL(struct acl *iacl, int icnt, struct acl *jacl, int jcnt, int mcnt)
+{
+   int i;
+   int j;
+   int k = 0;
+   struct acl *macl = (struct acl*)malloc(sizeof(struct acl) * mcnt);
+   for(i = 0 ; i < icnt ; i++)
+   {
+        if (iacl[i].inherit == 0)
+        {
+                macl[k].user = iacl[i].user;
+                macl[k].perm = iacl[i].perm;
+                macl[k].scope = iacl[i].scope;
+                macl[k].inherit = 0;
+                k++;
+        }
+   }
+   for(j = 0 ; j < jcnt ; j++)
+   {
+        if(jacl[j].scope != 0)
+        {
+                macl[k].user = jacl[j].user;
+                macl[k].perm = jacl[j].perm;
+                macl[k].scope = jacl[j].scope;
+                macl[k].inherit = 1;
+                k++;
+        }
+   }
+   return macl;    
+   
+}
+
 void acl_update(struct inode *nodes, struct journal *jou, int inode_num)
 {
     int i;
@@ -122,23 +198,31 @@ void acl_update(struct inode *nodes, struct journal *jou, int inode_num)
     {
         phist = nodes[inode_num - 1 - 1].hist;
     }
+
     for (i = 0 ; i < NUM ; i++)
     {
-        if(check_acl(nodes, inode_num) != 0)
+        if(check_acl(jou[i].user, nodes, inode_num) != 0)
         {
             continue;
         }
 
         if(jou[i].inode_number == inode_num)
         {
-            nodes[inode_num - 1].iacl += jou[i].acl;
+            struct acl *dacl = dupACL(jou[i].iacl, jou[i].cnt);
+            free(nodes[inode_num - 1].iacl);
+            nodes[inode_num - 1].cnt = jou[i].cnt;
+            nodes[inode_num - 1].iacl = dacl;
             nodes[inode_num - 1].hist += jou[i].serial_number;
         }
         else
         {
             if ((jou[i].serial_number & phist) != 0)
             {
-                nodes[inode_num - 1].iacl += jou[i].acl;
+                int mcnt = mergeCnt(nodes[inode_num - 1].iacl, nodes[inode_num - 1].cnt, jou[i].iacl, jou[i].cnt);
+                struct acl *macl = mergeACL(nodes[inode_num - 1].iacl, nodes[inode_num - 1].cnt, jou[i].iacl, jou[i].cnt, mcnt);
+                free(nodes[inode_num - 1].iacl);
+                nodes[inode_num - 1].cnt = mcnt;
+                nodes[inode_num - 1].iacl = macl;
                 nodes[inode_num - 1].hist += jou[i].serial_number;
             }
         }
@@ -146,7 +230,7 @@ void acl_update(struct inode *nodes, struct journal *jou, int inode_num)
     }
 
 }
-*/
+
 
 int main(int argc,char *args[]) { 
     int fd;
@@ -180,12 +264,16 @@ int main(int argc,char *args[]) {
         }
     }
     
-   // acl_update(nodes, jou, INUM);
+    acl_update(nodes, jou, INUM);
     
-    printf("\n\n");
+    printf("after\n\n");
     for (i = 0 ; i < INUM; i++)
     {
-        printf("inode : (num, acli, hist) = (%d, %d, %d)\n", nodes[i].num, nodes[i].iacl, nodes[i].hist);
+        printf("inode : (num,  hist) = (%d, %d)\n", nodes[i].num, nodes[i].hist);
+        for (j = 0 ; j < nodes[i].cnt ; j++)
+        {
+            printf("acl : (index, user, perm, scope, inherit) = (%d, %d, %d, %d, %d)\n", j + 1, nodes[i].iacl[j].user, nodes[i].iacl[j].perm, nodes[i].iacl[j].scope, nodes[i].iacl[j].inherit);
+        }
     }
     /*
     char path[512] = {0};
