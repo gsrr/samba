@@ -4,11 +4,11 @@
 #include <fcntl.h> 
 #include <sys/types.h>
 #include <sys/xattr.h>
+#include <time.h>
 
-
-#define NUM 10
-#define INUM 50
-#define ACLNUM 5
+int num = 10;
+int inum = 50;
+int aclnum = 5;
 
 struct acl {
     int user;
@@ -43,11 +43,11 @@ void create_journal(struct journal *jou, int num)
         jou[i].serial_number = base;
         jou[i].inode_number = 1;
         jou[i].user = 10000 + i + 1;
-	jou[i].cnt = ACLNUM;
-        jou[i].iacl = (struct acl*)malloc(sizeof(struct acl) * ACLNUM);
+	jou[i].cnt = aclnum;
+        jou[i].iacl = (struct acl*)malloc(sizeof(struct acl) * aclnum);
         user += 1;
         base *= 2;
-        for (j = 0 ; j < ACLNUM ; j++)
+        for (j = 0 ; j < aclnum ; j++)
         {
            jou[i].iacl[j].user = 10000 + j + i;
            jou[i].iacl[j].perm = 3;
@@ -66,22 +66,22 @@ void create_inode(struct inode *nodes, int num)
     {
         nodes[i].num = i + 1;
         nodes[i].hist = 0;
-	nodes[i].cnt = 2 * ACLNUM;
-        nodes[i].iacl = (struct acl*)malloc(sizeof(struct acl) * (ACLNUM * 2));
+	nodes[i].cnt = 2 * aclnum;
+        nodes[i].iacl = (struct acl*)malloc(sizeof(struct acl) * (aclnum * 2));
         struct acl *tacl = nodes[i].iacl;
-        for (j = 0 ; j < ACLNUM ; j++)
+        for (j = 0 ; j < aclnum ; j++)
         {
             tacl[j].user = 10000 + j;
             tacl[j].perm = 3;
             tacl[j].scope = 3;
             tacl[j].inherit = 0;
         }
-        for (j = 0 ; j < ACLNUM ; j++)
+        for (j = 0 ; j < aclnum ; j++)
         {
-            tacl[j + ACLNUM].user = 10000 + j + ACLNUM;
-            tacl[j + ACLNUM].perm = 3;
-            tacl[j + ACLNUM].scope = 3;
-            tacl[j + ACLNUM].inherit = 1;
+            tacl[j + aclnum].user = 10000 + j + aclnum;
+            tacl[j + aclnum].perm = 3;
+            tacl[j + aclnum].scope = 3;
+            tacl[j + aclnum].inherit = 1;
         }
     }
 }
@@ -89,7 +89,7 @@ void create_inode(struct inode *nodes, int num)
 int is_updated(int hist, struct journal *jou)
 {
      int i;
-     for (i = 0 ; i < NUM ; i++)
+     for (i = 0 ; i < num ; i++)
      {
         if(jou[i].serial_number & hist == 0)
         {
@@ -182,7 +182,6 @@ void acl_update(struct inode *nodes, struct journal *jou, int inode_num)
     int i;
     int j;
     int phist = 0;
-    
     if(inode_num == 0)
     {
         return;
@@ -199,7 +198,7 @@ void acl_update(struct inode *nodes, struct journal *jou, int inode_num)
         phist = nodes[inode_num - 1 - 1].hist;
     }
 
-    for (i = 0 ; i < NUM ; i++)
+    for (i = 0 ; i < num ; i++)
     {
         if(check_acl(jou[i].user, nodes, inode_num) != 0)
         {
@@ -231,43 +230,68 @@ void acl_update(struct inode *nodes, struct journal *jou, int inode_num)
 
 }
 
+void clear_hist_all(struct inode *nodes)
+{
+    int i;
+    for(i = 0 ; i < inum ; i++)
+    {
+        nodes[i].hist = 0;
+    }
+}
 
-int main(int argc,char *args[]) { 
+void clear_hist(struct inode *nodes)
+{
+    nodes[inum - 1].hist = 0;
+}
+
+int main(int argc,char *argv[]) { 
+    float total_time = 0;
     int fd;
     int i;
     int j;
-    struct journal jou[NUM];
-    struct inode nodes[INUM];
+    struct journal jou[num];
+    struct inode nodes[inum];
+    struct timeval st, et;
+
+    int debug = atoi(argv[1]);
+    int mode = atoi(argv[2]);
+    int files = atoi(argv[3]);
+    int enableACL = atoi(argv[4]);
+    int enableSET = atoi(argv[5]);
+    num = atoi(argv[6]);
+    inum = atoi(argv[7]);
+    aclnum = atoi(argv[8]);
+
+    printf("args: debug=%d, mode=%d, files=%d, acl=%d, setxattr=%d, num=%d, inum=%d, aclnum=%d\n", debug, mode, files, enableACL, enableSET, num, inum, aclnum);
+    create_journal(jou, num);
+    create_inode(nodes, inum);
     
-
-    create_journal(jou, NUM);
-
-    for (i = 0 ; i < NUM; i++)
+    if(debug == 1)
     {
-        printf("journal : %d --> ", i);
-        printf("serial=%d, inode=%d, user=%d\n", jou[i].serial_number, jou[i].inode_number, jou[i].user);
-        for (j = 0 ; j < ACLNUM ; j++)
+        for (i = 0 ; i < num; i++)
         {
-            printf("jou's acl : (index, user, perm, scope, inherit) = (%d, %d, %d, %d, %d)\n", j + 1, jou[i].iacl[j].user, jou[i].iacl[j].perm, jou[i].iacl[j].scope, jou[i].iacl[j].inherit);
+            printf("journal : %d --> ", i);
+            printf("serial=%d, inode=%d, user=%d\n", jou[i].serial_number, jou[i].inode_number, jou[i].user);
+            for (j = 0 ; j < aclnum ; j++)
+            {
+                printf("jou's acl : (index, user, perm, scope, inherit) = (%d, %d, %d, %d, %d)\n", j + 1, jou[i].iacl[j].user, jou[i].iacl[j].perm, jou[i].iacl[j].scope, jou[i].iacl[j].inherit);
+            }
+            printf("\n");
         }
-        printf("\n");
-    }
-    
-    create_inode(nodes, INUM);
 
-    for (i = 0 ; i < INUM; i++)
-    {
-        printf("inode : (num,  hist) = (%d, %d)\n", nodes[i].num, nodes[i].hist);
-        for (j = 0 ; j < 2*ACLNUM ; j++)
+        for (i = 0 ; i < inum; i++)
         {
-            printf("acl : (index, user, perm, scope, inherit) = (%d, %d, %d, %d, %d)\n", j + 1, nodes[i].iacl[j].user, nodes[i].iacl[j].perm, nodes[i].iacl[j].scope, nodes[i].iacl[j].inherit);
+            printf("inode : (num,  hist) = (%d, %d)\n", nodes[i].num, nodes[i].hist);
+            for (j = 0 ; j < 2*aclnum ; j++)
+            {
+                printf("acl : (index, user, perm, scope, inherit) = (%d, %d, %d, %d, %d)\n", j + 1, nodes[i].iacl[j].user, nodes[i].iacl[j].perm, nodes[i].iacl[j].scope, nodes[i].iacl[j].inherit);
+            }
         }
     }
-    
-    acl_update(nodes, jou, INUM);
-    
+    /*
+        acl_update(nodes, jou, inum);
     printf("after\n\n");
-    for (i = 0 ; i < INUM; i++)
+    for (i = 0 ; i < inum; i++)
     {
         printf("inode : (num,  hist) = (%d, %d)\n", nodes[i].num, nodes[i].hist);
         for (j = 0 ; j < nodes[i].cnt ; j++)
@@ -275,9 +299,9 @@ int main(int argc,char *args[]) {
             printf("acl : (index, user, perm, scope, inherit) = (%d, %d, %d, %d, %d)\n", j + 1, nodes[i].iacl[j].user, nodes[i].iacl[j].perm, nodes[i].iacl[j].scope, nodes[i].iacl[j].inherit);
         }
     }
-    /*
+*/
     char path[512] = {0};
-    for (i = 0 ; i < 50000 ; i++)
+    for (i = 0 ; i < files ; i++)
     {
         sprintf(path, "sub1/file_%d", i);
         fd = open(path,O_RDWR|O_CREAT|O_TRUNC); 
@@ -285,14 +309,33 @@ int main(int argc,char *args[]) {
             printf("Open Error!Check if the file is exist and you have the permission!\n"); 
             exit(1); 
         }  
+        if(mode == 1)
+            clear_hist_all(nodes);
+        else
+            clear_hist(nodes);
+        if(enableACL == 1)
+        {
+            
+            gettimeofday(&st,NULL);
+            acl_update(nodes, jou, inum);
+            gettimeofday(&et,NULL);
+            int elapsed = ((et.tv_sec - st.tv_sec) * 1000000) + (et.tv_usec - st.tv_usec);
+            //printf("elapsed:%d\n", elapsed);
+            total_time += elapsed;
+        }
+        /*
         for (j = 0 ; j < 256 ; j++)
         {
-            write(fd,"1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",1024);//这里需要用读取到的字符数,否则会出错,因为buff数组有可能未被全覆盖 
+            write(fd,"1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",1024); 
         }
-        fsetxattr(fd, "user.test", "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111", 256, XATTR_CREATE);
+        */
+        if(enableSET == 1)
+        {
+            fsetxattr(fd, "user.test", "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111", 256, XATTR_CREATE);
+        }
         close(fd); 
     } 
-    */
+    printf("Elapse:%f\n", total_time/1000000);
     exit(0); 
 
 } 
