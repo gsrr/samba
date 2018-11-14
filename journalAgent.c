@@ -8,6 +8,7 @@
 #define JOURNALINIT     0
 #define JOURNALADD      1
 #define JOURNALSHOW     2
+#define JOURNALDEL       3
 
 #define ACLSET     0
 #define ACLREPLACE 1
@@ -158,6 +159,26 @@ int dump_jouTable()
     free(buffer);
 }
 
+void insert_jou_table(struct journalIftacl *tmpTable, struct entryIftacl *e)
+{
+    printf("insert jou table\n");
+    if(tmpTable->es == NULL)
+    {
+        tmpTable->es = e;
+        return;
+    }
+    else
+    {
+        struct entryIftacl *tmp = tmpTable->es;
+        while(tmp->next != NULL)
+        {
+            tmp = tmp->next;
+        }
+        tmp->next = e;
+        return;
+    }
+}
+
 void read_jou_entry(struct journalIftacl *tmpTable, char *buffer, int *offset)
 {
     int i;
@@ -167,25 +188,27 @@ void read_jou_entry(struct journalIftacl *tmpTable, char *buffer, int *offset)
         return;
     }
 
-    printf("jou entry cnt:%d\n", tmpTable->cnt);
-    tmpTable->es = (struct entryIftacl*)malloc(sizeof(struct entryIftacl) * tmpTable->cnt);
+    printf("entry->cnt:%d\n", tmpTable->cnt);
     for(i = 0 ; i < tmpTable->cnt ; i++)
     {
-        tmpTable->es[i].serial = read_bytes(buffer, 4, offset);        
-        tmpTable->es[i].op = read_bytes(buffer, 2, offset);        
-        tmpTable->es[i].user = read_bytes(buffer, 4, offset);        
-        tmpTable->es[i].inumber = read_bytes(buffer, 4, offset);        
-        tmpTable->es[i].cnt = read_bytes(buffer, 4, offset);        
-        printf("ace cnt:%d\n", tmpTable->es[i].cnt);
-        tmpTable->es[i].aces = (struct iftacl_aces*)malloc(sizeof(struct iftacl_aces) * tmpTable->es[i].cnt);
-        for(j = 0 ; j < tmpTable->es[i].cnt ; j++)
+        struct entryIftacl *tes  = (struct entryIftacl*)malloc(sizeof(struct entryIftacl));
+        tes->serial = read_bytes(buffer, 4, offset);        
+        tes->op = read_bytes(buffer, 2, offset);        
+        tes->user = read_bytes(buffer, 4, offset);        
+        tes->inumber = read_bytes(buffer, 4, offset);        
+        tes->cnt = read_bytes(buffer, 4, offset);        
+        tes->aces = (struct iftacl_aces*)malloc(sizeof(struct iftacl_aces) * (tes->cnt));
+        printf("tes->cnt:%d\n", tes->cnt);
+        for(j = 0 ; j < tes->cnt ; j++)
         {
-            tmpTable->es[i].aces[j].type = read_bytes(buffer, 1, offset);
-            tmpTable->es[i].aces[j].flags = read_bytes(buffer, 1, offset);
-            tmpTable->es[i].aces[j].access = read_bytes(buffer, 4, offset);
-            tmpTable->es[i].aces[j].role = read_bytes(buffer, 1, offset);
-            tmpTable->es[i].aces[j].uid = read_bytes(buffer, 4, offset);
+            tes->aces[j].type = read_bytes(buffer, 1, offset);
+            tes->aces[j].flags = read_bytes(buffer, 1, offset);
+            tes->aces[j].access = read_bytes(buffer, 4, offset);
+            tes->aces[j].role = read_bytes(buffer, 1, offset);
+            tes->aces[j].uid = read_bytes(buffer, 4, offset);
         }
+        tes->next = NULL;
+        insert_jou_table(tmpTable, tes);
     }
 }
 
@@ -202,6 +225,7 @@ void read_jou_table(char *path)
     tmpTable->pid = read_bytes(buffer, 4, &offset);
     tmpTable->vvid = read_bytes(buffer, 4, &offset);
     tmpTable->cnt = read_bytes(buffer, 4, &offset);
+    tmpTable->es = NULL;
     
     read_jou_entry(tmpTable, buffer, &offset);
     jouTable = tmpTable;
@@ -292,34 +316,34 @@ void add_jou_entry(char *acl)
     jouTable->cnt += 1;
 }
 
-void show_jou_table(char *path)
+void show_jou_table()
 {
-    printf("show journal table\n");
-    int i;
     int j;
-    read_jou_table(path);
+    printf("show journal table\n");
     printf("serial:%d\n", jouTable->serial);
     printf("pid:%d\n", jouTable->pid);
     printf("vvid:%d\n", jouTable->vvid);
     printf("cnt:%d\n", jouTable->cnt);
 
-    for(i = 0 ; i < jouTable->cnt ; i++)
+    struct entryIftacl *e = jouTable->es;
+    while(e != NULL)
     {
-        printf("\tserial:%d\n", jouTable->es[i].serial);
-        printf("\top:%d\n", jouTable->es[i].op);
-        printf("\tuser:%d\n", jouTable->es[i].user);
-        printf("\tinumber:%d\n", jouTable->es[i].inumber);
-        printf("\tace cnt:%d\n", jouTable->es[i].cnt);
+        printf("\tserial:%d\n", e->serial);
+        printf("\top:%d\n", e->op);
+        printf("\tuser:%d\n", e->user);
+        printf("\tinumber:%d\n", e->inumber);
+        printf("\tace cnt:%d\n", e->cnt);
         
-        for (j = 0 ; j < jouTable->es[i].cnt ; j++)
+        for (j = 0 ; j < e->cnt ; j++)
         {
-            printf("\t\ttype:%d\n", jouTable->es[i].aces[j].type);
-            printf("\t\tflag:%d\n", jouTable->es[i].aces[j].flags);
-            printf("\t\taccess:%d\n", jouTable->es[i].aces[j].access);
-            printf("\t\trole:%d\n", jouTable->es[i].aces[j].role);
-            printf("\t\tuid:%d\n\n", jouTable->es[i].aces[j].uid);
+            printf("\t\ttype:%d\n", e->aces[j].type);
+            printf("\t\tflag:%d\n", e->aces[j].flags);
+            printf("\t\taccess:%d\n", e->aces[j].access);
+            printf("\t\trole:%d\n", e->aces[j].role);
+            printf("\t\tuid:%d\n\n", e->aces[j].uid);
             
         }
+        e = e -> next;
     }
     
 }
@@ -328,6 +352,48 @@ void send_signal()
 {
     printf("send signal to %d\n", jouTable->pid);
     kill(jouTable->pid, SIGUSR1);
+}
+
+void del_jou_entry(int serial)
+{
+    printf("del_jou_entry\n");
+    struct entryIftacl *p = NULL;
+    struct entryIftacl *tmp = jouTable->es;
+    if(tmp == NULL)
+    {
+        return;
+    }
+
+    while(tmp != NULL)
+    {
+        printf("tmp serial, serial = %d, %d\n", tmp->serial, serial);
+        if(tmp->serial == serial)
+        {
+            break;
+        }
+        p = tmp;
+        tmp = tmp->next;
+    }
+    if(tmp == NULL)
+    {
+        printf("Cant find entry\n");
+        return;
+    }
+    if(p != NULL)
+    {
+        p->next = tmp->next;
+    }
+    else
+    {
+        jouTable->es = tmp->next;
+    }
+    free(tmp->aces);
+    free(tmp);
+    jouTable->cnt -= 1;
+    if(jouTable->cnt == 0)
+    {
+        jouTable->es = NULL;
+    }
 }
 
 int main(int argc, char *argv[])
@@ -352,7 +418,15 @@ int main(int argc, char *argv[])
     }    
     else if(atoi(argv[1]) == JOURNALSHOW)
     {
-       show_jou_table(argv[2]);
+        read_jou_table(argv[2]);
+       show_jou_table();
+    }
+    else if(atoi(argv[1]) == JOURNALDEL)
+    {
+       read_jou_table(argv[2]);
+       del_jou_entry(atoi(argv[3]));
+       show_jou_table();
+       dump_jouTable();
     }
 
 }
