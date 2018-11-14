@@ -2,6 +2,7 @@
 #include <stdlib.h> 
 #include <string.h> 
 #include <fcntl.h> 
+#include <signal.h>
 
 #define JOURNALSUCCESS  0
 #define JOURNALINIT     0
@@ -323,6 +324,12 @@ void show_jou_table(char *path)
     
 }
 
+void send_signal()
+{
+    printf("send signal to %d\n", jouTable->pid);
+    kill(jouTable->pid, SIGUSR1);
+}
+
 int main(int argc, char *argv[])
 {
     if (atoi(argv[1]) == JOURNALINIT)
@@ -341,6 +348,7 @@ int main(int argc, char *argv[])
         read_jou_table(argv[2]);
         add_jou_entry(argv[3]);
         dump_jouTable();
+        send_signal();
     }    
     else if(atoi(argv[1]) == JOURNALSHOW)
     {
