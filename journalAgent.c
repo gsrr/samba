@@ -1,8 +1,4 @@
-#include <stdio.h>
-#include <stdlib.h> 
-#include <string.h> 
-#include <fcntl.h> 
-#include <signal.h>
+#include "ift_journal.h"
 
 #define JOURNALSUCCESS  0
 #define JOURNALINIT     0
@@ -37,49 +33,6 @@ void iftacl_push_to_blob(char* blob, void *value, int size, int *offset)
     *offset += size;
 }
 
-/* Big endian */
-int read_bytes(char* value, int size, int* offset)
-{
-    int num = 0;
-    int i;
-    for(i = 0 ; i < size ; i++)
-    {
-        num = num << 8;
-        num |= (value[*offset + i] & 0xff);
-    }
-    *offset += size;
-    return num;
-}
-
-struct iftacl_aces
-{
-    char type;
-    char flags;
-    unsigned int access;
-    char role;
-    unsigned int uid;
-};
-
-struct entryIftacl {
-    int serial;
-    unsigned short int op; // setAcl, replaceAcl, move
-    unsigned int user;
-    int inumber;  //64 bits?
-    int cnt;
-    struct iftacl_aces *aces;
-    struct entryIftacl *next;
-};
-
-struct journalIftacl {
-    int serial;
-    int pid;
-    int vvid;
-    int cnt;
-    struct entryIftacl *es; // 4 + 2 + 4 + 4 + 4 + 11 * cnt;
-};
-
-struct journalIftacl *jouTable; 
-
 int journal_init(int pid, int vvid, struct entryIftacl *es)
 {
     printf("journal_init\n");
@@ -102,9 +55,9 @@ int journal_init(int pid, int vvid, struct entryIftacl *es)
 
 int dump_jouTable()
 {
-    printf("dump_jouTable\n");
     int i;
     int j;
+    int k;
     int fd;
     char path[512] = {0};
     int bufferLen = 0;
@@ -119,7 +72,17 @@ int dump_jouTable()
             struct entryIftacl *tmp = jouTable->es;
             while(tmp != NULL)
             {
-                bufferLen += (4 + 2 + 4 + 4 + 4 + 11 * jouTable->es->cnt);
+                bufferLen += (4 + 4 + 2 + 4 + 4 + 4 + 11 * jouTable->es->cnt);         
+                printf("dump table : tmp->path :%s\n", tmp->path);
+                if(tmp->path != NULL)
+                {
+                    bufferLen += 4; // length;
+                    bufferLen += strlen(tmp->path);
+                }
+                else
+                {
+                    bufferLen += 4; // length = 0;
+                }
                 tmp = tmp->next;
             }
         }
@@ -129,18 +92,32 @@ int dump_jouTable()
     iftacl_push_to_blob(buffer, &(jouTable->pid), 4, &offset); 
     iftacl_push_to_blob(buffer, &(jouTable->vvid), 4, &offset); 
     iftacl_push_to_blob(buffer, &(jouTable->cnt), 4, &offset); 
-    printf("jouTable->cnt:%d\n", jouTable->cnt);
     if(jouTable->es != NULL)
     {
         struct entryIftacl *tmp = jouTable->es;
+        int length;
         while(tmp != NULL)
         {
+            if(tmp->path == NULL)
+            {
+                length = 0;
+            }
+            else
+            {
+                length = strlen(tmp->path);
+            }
             iftacl_push_to_blob(buffer, &(tmp->serial), 4, &offset); 
+            iftacl_push_to_blob(buffer, &(tmp->aid), 4, &offset); 
             iftacl_push_to_blob(buffer, &(tmp->op), 2, &offset); 
             iftacl_push_to_blob(buffer, &(tmp->user), 4, &offset); 
             iftacl_push_to_blob(buffer, &(tmp->inumber), 4, &offset); 
+            iftacl_push_to_blob(buffer, &length , 4, &offset); 
+            printf("length:%d\n", length);
+            for(k = 0 ; k < length ; k++)
+            {
+                iftacl_push_to_blob(buffer, &(tmp->path[k]), 1, &offset); 
+            }
             iftacl_push_to_blob(buffer, &(tmp->cnt), 4, &offset); 
-            printf("tmp->cnt:%d\n", tmp->cnt);
             for (j = 0 ; j < tmp->cnt ; j++)
             {
                 iftacl_push_to_blob(buffer, &(tmp->aces[j].type), 1, &offset);
@@ -159,83 +136,10 @@ int dump_jouTable()
     free(buffer);
 }
 
-void insert_jou_table(struct journalIftacl *tmpTable, struct entryIftacl *e)
-{
-    printf("insert jou table\n");
-    if(tmpTable->es == NULL)
-    {
-        tmpTable->es = e;
-        return;
-    }
-    else
-    {
-        struct entryIftacl *tmp = tmpTable->es;
-        while(tmp->next != NULL)
-        {
-            tmp = tmp->next;
-        }
-        tmp->next = e;
-        return;
-    }
-}
 
-void read_jou_entry(struct journalIftacl *tmpTable, char *buffer, int *offset)
-{
-    int i;
-    int j;
-    if(tmpTable->cnt == 0)
-    {
-        return;
-    }
-
-    printf("entry->cnt:%d\n", tmpTable->cnt);
-    for(i = 0 ; i < tmpTable->cnt ; i++)
-    {
-        struct entryIftacl *tes  = (struct entryIftacl*)malloc(sizeof(struct entryIftacl));
-        tes->serial = read_bytes(buffer, 4, offset);        
-        tes->op = read_bytes(buffer, 2, offset);        
-        tes->user = read_bytes(buffer, 4, offset);        
-        tes->inumber = read_bytes(buffer, 4, offset);        
-        tes->cnt = read_bytes(buffer, 4, offset);        
-        tes->aces = (struct iftacl_aces*)malloc(sizeof(struct iftacl_aces) * (tes->cnt));
-        printf("tes->cnt:%d\n", tes->cnt);
-        for(j = 0 ; j < tes->cnt ; j++)
-        {
-            tes->aces[j].type = read_bytes(buffer, 1, offset);
-            tes->aces[j].flags = read_bytes(buffer, 1, offset);
-            tes->aces[j].access = read_bytes(buffer, 4, offset);
-            tes->aces[j].role = read_bytes(buffer, 1, offset);
-            tes->aces[j].uid = read_bytes(buffer, 4, offset);
-        }
-        tes->next = NULL;
-        insert_jou_table(tmpTable, tes);
-    }
-}
-
-void read_jou_table(char *path)
-{
-    int i;
-    int offset = 0;
-    char buffer[8192] = {0};
-    int fd = open(path,O_RDWR);
-    int ret = read (fd, &buffer, 8192);
-    printf("jou table size:%d\n", ret);
-    struct journalIftacl *tmpTable = (struct journalIftacl*)malloc(sizeof(struct journalIftacl));
-    tmpTable->serial = read_bytes(buffer, 4, &offset);
-    tmpTable->pid = read_bytes(buffer, 4, &offset);
-    tmpTable->vvid = read_bytes(buffer, 4, &offset);
-    tmpTable->cnt = read_bytes(buffer, 4, &offset);
-    tmpTable->es = NULL;
-    
-    read_jou_entry(tmpTable, buffer, &offset);
-    jouTable = tmpTable;
-    close(fd);
-}
-
-// acl = "op:user:inumber:cnt:aces", 0:0:1087985:2:0;0;2032031;1;100001:0;0;1179785;3;0
+// acl = "aid:op:user:inumber:cnt:aces", 0:0:0:1087985:2:0;0;2032031;1;100001:0;0;1179785;3;0
 void add_jou_entry(char *acl)
 {
-    printf("add journal entry\n");
     struct entryIftacl *tentry = (struct entryIftacl*)malloc(sizeof(struct entryIftacl)); 
     int cnt = 0;
     tentry->serial = jouTable->serial; // critical section
@@ -244,24 +148,43 @@ void add_jou_entry(char *acl)
     char *token;
     while(token = strtok_r(rest, ":", &rest))
     {
+        printf("token:%s\n", token);
         if(cnt == 0)
+        {
+            tentry->aid = atoi(token);
+        }
+        if(cnt == 1)
         {
             tentry->op = atoi(token);
         }
-        else if(cnt == 1)
+        else if(cnt == 2)
         {
             tentry->user = atoi(token);
         }
-        else if(cnt == 2)
+        else if(cnt == 3)
         {
             tentry->inumber = atoi(token);
         }
-        else if(cnt == 3)
+        else if(cnt == 4)
+        {
+            int length = strlen(token);
+            if(length == 1)
+            {
+                tentry->path = NULL;
+            }
+            else
+            {
+                tentry->path = (char*)malloc(sizeof(char) * (length + 1));
+                strncpy(tentry->path, token, length);
+                tentry->path[length] = '\0';
+            }
+        }
+        else if(cnt == 5)
         {
             tentry->cnt = atoi(token);
             tentry->aces = (struct iftacl_aces*)malloc(sizeof(struct entryIftacl) * (tentry->cnt));
         }
-        if(cnt > 3)
+        if(cnt > 5)
         {
             printf("token : %s\n", token); 
             char *rest2 = token;
@@ -270,7 +193,7 @@ void add_jou_entry(char *acl)
             while(acetoken = strtok_r(rest2, ";", &rest2))
             {
                 printf("\tacetoken: %s\n", acetoken);
-                int index = cnt - 4;
+                int index = cnt - 6;
                 if(cnt2 == 0)
                 {
                     tentry->aces[index].type = atoi(acetoken); 
@@ -297,56 +220,23 @@ void add_jou_entry(char *acl)
         cnt += 1;
     }
     tentry->next = NULL;
+
     if(jouTable->es == NULL)
     {
         jouTable->es = tentry;
     }
     else
     {
-        printf("append tentry\n");
         struct entryIftacl *tes = jouTable->es;
         while(tes->next != NULL)
         {
             tes = tes->next;
         }
-        printf("tes.cnt:%d\n", tes->cnt);
-        printf("tentry.cnt:%d\n", tentry->cnt);
         tes->next = tentry;
     }
     jouTable->cnt += 1;
 }
 
-void show_jou_table()
-{
-    int j;
-    printf("show journal table\n");
-    printf("serial:%d\n", jouTable->serial);
-    printf("pid:%d\n", jouTable->pid);
-    printf("vvid:%d\n", jouTable->vvid);
-    printf("cnt:%d\n", jouTable->cnt);
-
-    struct entryIftacl *e = jouTable->es;
-    while(e != NULL)
-    {
-        printf("\tserial:%d\n", e->serial);
-        printf("\top:%d\n", e->op);
-        printf("\tuser:%d\n", e->user);
-        printf("\tinumber:%d\n", e->inumber);
-        printf("\tace cnt:%d\n", e->cnt);
-        
-        for (j = 0 ; j < e->cnt ; j++)
-        {
-            printf("\t\ttype:%d\n", e->aces[j].type);
-            printf("\t\tflag:%d\n", e->aces[j].flags);
-            printf("\t\taccess:%d\n", e->aces[j].access);
-            printf("\t\trole:%d\n", e->aces[j].role);
-            printf("\t\tuid:%d\n\n", e->aces[j].uid);
-            
-        }
-        e = e -> next;
-    }
-    
-}
 
 void send_signal()
 {
